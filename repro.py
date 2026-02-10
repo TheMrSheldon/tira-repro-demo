@@ -137,12 +137,14 @@ def __download_code(metadata: "dict[str, Any]", dest: "PathLike") -> Repo:
         try:
             repo = Repo.clone_from(url, to_path=dest)
             log_message(f"Cloned into the repository from {url}", FormatMsgType.OK)
+            repo.git.checkout(commit)
+            log_message(f"Checked out commit {commit}", FormatMsgType.OK)
             break
         except exc.GitError:
             log_message(f"Failed to clone from {url}", FormatMsgType.WARN)
     else:
         log_message("Failed to clone repository", FormatMsgType.ERROR)
-        logging.critical(f"Failed to clone repository from {repository}")
+        logging.critical(f"Failed to clone repository from {repository} and checkout {commit}")
         sys.exit(3)
     return repo
 
@@ -198,10 +200,14 @@ def __run_experiment(metadata: "dict[str, Any]", directory: "Path") -> None:
             "Vital information is not present in the metadata", exc_info=e)
         sys.exit(4)
     # Run the script
-    ## TODO: build the dockerfile located at directory/"Dockerfile" and execute it with --rm. The build context is directory
+    # Build the docker image
+    network_access: bool = True
     subprocess.run(["docker", "build", "-t", "repro-experiment", str(directory)], check=True)
-    subprocess.run(["docker", "run", "--rm", "repro-experiment"], check=True)
-    input()
+    # Run the docker image
+    docker_args = ["--rm"]
+    if not network_access:
+        docker_cmd.extend(("--network", "none"))
+    subprocess.run(["docker", *docker_args, "repro-experiment"], check=True)
 
 
 # TODO: add optional --out path
