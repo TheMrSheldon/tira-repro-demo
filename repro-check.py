@@ -55,11 +55,20 @@ class Check(abc.ABC):
 
 GIT_REPO_HINT: Hint = (
     "Use Git", "Run `git init` from your code's directory to initialize a git repository.")
+UNCHECKED_FILES_HINT: Hint = (
+    "Add or ignore all files",
+    "Some of your files are not tracked by the repository. You can list these files using `git status`. If  one of "
+    "those files should not be committed (e.g., because it is created by the program and should not be checked in into "
+    "the repository), then add it to your `.gitignore` file."
+)
 UNCOMMITTED_CHANGES_HINT: Hint = (
     "Commit all changes",
-    "Some of your files contain changes that are not yet committed. You can list these files using `git status`. If "
-    "one of those files should not be committed (e.g., because it is created by the program and should not be checked "
-    "in into the repository), then add it to your `.gitignore` file."
+    "Some of your files contain changes that are not yet committed. You can list these files using `git status`, add "
+    "them by running `git add <file>` for each file, and then `git commit -m \"your description of the commit\"`."
+)
+UNPUSHED_CHANGES_HINT: Hint = (
+    "Push all your changes",
+    "Some of the changes you committed are not yet pushed to the remote. To resolve this, run `git push`."
 )
 
 
@@ -99,14 +108,18 @@ class GitCheck(Check):
         commit = gitinfo[Measure.GIT_LAST_COMMIT_HASH].value.decode()
         yield "Commit", NO_HINT_NEEDED, commit, Result.SUCCESS
 
-        uncommitted_changes = int(
-            gitinfo[Measure.GIT_UNCOMMITTED_CHANGES].value.decode())
-        msg = f"{uncommitted_changes} files with changes have not been committed or ignored by the .gitignore" if uncommitted_changes else "No uncommitted changes"
+        unchecked_files = bool(gitinfo[Measure.GIT_UNCHECKED_FILES].value)
+        msg = f"Some files are not tracked by the repository nor ignored by the .gitignore" if unchecked_files else "All files are tracked by the repository"
+        yield "Untracked files", UNCHECKED_FILES_HINT, msg, (Result.SUCCESS if unchecked_files == 0 else Result.FAIL)
+
+        uncommitted_changes = bool(
+            gitinfo[Measure.GIT_UNCOMMITTED_CHANGES].value)
+        msg = f"Some changes to tracked files have not been committed" if uncommitted_changes else "No uncommitted changes"
         yield "Uncommitted changes", UNCOMMITTED_CHANGES_HINT, msg, (Result.SUCCESS if uncommitted_changes == 0 else Result.FAIL)
 
-        unpushed_changes = int(
-            gitinfo[Measure.GIT_UNPUSHED_CHANGES].value.decode())
-        yield "Unpushed changes", ("TODO", "<TODO: hint>"), unpushed_changes or "Every commit that you have locally is also pushed", (Result.SUCCESS if unpushed_changes == 0 else Result.FAIL)
+        unpushed_changes = bool(gitinfo[Measure.GIT_UNPUSHED_CHANGES].value)
+        msg = f"Some commits have not been pushed to the remote." if unpushed_changes else "Every commit that you have locally is also pushed"
+        yield "Unpushed changes", UNPUSHED_CHANGES_HINT, msg, (Result.SUCCESS if unpushed_changes == 0 else Result.FAIL)
 
 
 CONFIGURE_DEV_CONTAINER_HINT: Hint = (
@@ -162,7 +175,14 @@ class DevContainerCheck(Check):
 
 
 def main() -> int:
-    console = Console(record=True)
+    # from rich.console import themes
+    # from rich import terminal_theme
+    # theme = themes.Theme({
+    #     "markdown.code": "black",
+    #     "markdown.code_block": "black",
+    # })
+
+    console = Console(record=True)  # , theme=theme)
     hints: list[tuple[str, str]] = []
     for check in (GitCheck(), DevContainerCheck()):
         subchecks, status = check()
@@ -173,7 +193,7 @@ def main() -> int:
         for name, hint, value, substatus in subchecks:
             statmsg = "[green]✓[/green]" if substatus == Result.SUCCESS else "[red]✗[/red]"
             console.print(
-                f"  {statmsg} {name:<25} [italic][dim]{value}[/dim][/italic]")
+                f"  {statmsg} {name:<23} [italic][dim]{value}[/dim][/italic]")
             if substatus != Result.SUCCESS and hint is not NO_HINT_NEEDED:
                 hints.append(hint)
     if hints == []:
@@ -189,7 +209,29 @@ def main() -> int:
     for title, description in hints:
         table.add_row(title, Markdown(description))
     console.print(table)
-    console.save_svg("./screenshot.svg", title="repro-check.py")
+    # theme = terminal_theme.TerminalTheme((240, 240, 240),
+    # (64, 63, 83),
+    # [
+    #     (1, 22, 39),
+    #     (211, 66, 62),
+    #     (42, 162, 152),
+    #     (218, 170, 1),
+    #     (72, 118, 214),
+    #     (64, 63, 83),
+    #     (8, 145, 106),
+    #     (122, 129, 129),
+    #     (122, 129, 129),
+    # ],
+    # [
+    #     (247, 110, 110),
+    #     (73, 208, 197),
+    #     (218, 194, 107),
+    #     (92, 167, 228),
+    #     (105, 112, 152),
+    #     (0, 201, 144),
+    #     (152, 159, 177),
+    # ],)
+    # console.save_svg("./screenshot.svg", title="repro-check.py", theme=theme)
     return 1
 
 

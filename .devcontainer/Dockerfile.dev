@@ -1,1 +1,10 @@
-FROM --platform=linux/amd64 mcr.microsoft.com/devcontainers/python:2-3.14-trixie
+# FROM --platform=linux/amd64 mcr.microsoft.com/devcontainers/python:2-3.14-trixie
+FROM mcr.microsoft.com/devcontainers/python:2-3.14-trixie
+
+# Need for docker-in-docker
+RUN <<EOF
+# The one inside the image seems to be deprecated
+curl -fsSL https://dl.yarnpkg.com/debian/pubkey.gpg | gpg --dearmor | sudo tee /usr/share/keyrings/yarn-archive-keyring.gpg > /dev/null
+EOF
+
+RUN apt-get update && apt-get install -y openjdk-21-jdk
