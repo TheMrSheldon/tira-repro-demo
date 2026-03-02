@@ -28,6 +28,37 @@ WORKDIR /app
 COPY . .
 RUN {postcreatecommand}
 
+# This configures the site module (https://docs.python.org/3/library/site.html) 
+RUN python - <<'EOF'
+import os
+import site
+from pathlib import Path
+
+# Get USER site-packages directory
+user_site = site.getusersitepackages()
+Path(user_site).mkdir(parents=True, exist_ok=True)
+
+# Write sitecustomize.py into USER site
+sitecustomize_path = Path(user_site) / "sitecustomize.py"
+sitecustomize_path.write_text(
+'''
+try:
+    import os
+    import ir_datasets
+
+    _original_load = ir_datasets.load
+
+    def _patched_load(*args, **kwargs):
+        # Ignore any user-provided arguments and always use TIRA_INPUT_DATASET
+        return _original_load(os.environ.get("TIRA_INPUT_DATASET"))
+
+    ir_datasets.load = _patched_load
+except ModuleNotFoundError:
+    pass  # User did not install ir_datasets and thus I don't need to patch it
+'''
+)
+EOF
+
 CMD {command}
 """
 
@@ -150,10 +181,6 @@ def __download_code(metadata: "dict[str, Any]", dest: "PathLike") -> Repo:
 
 
 def __configure_docker_container(metadata: "dict[str, Any]", dest: Path) -> None:
-    # Search for an existing Docker configuration
-    # TODO: implement
-    log_message(
-        "No docker configuration found; I will create one from the metadata...", FormatMsgType.WARN)
     # Construct a Docker Container
     try:
         # TODO: load image
@@ -187,7 +214,7 @@ RUN apt-get update && apt-get install -y openjdk-21-jdk"""
         sys.exit(4)
 
 
-def __run_experiment(metadata: "dict[str, Any]", directory: "Path") -> None:
+def __run_experiment(metadata: "dict[str, Any]", directory: "Path", env: dict[str, str] = {}) -> None:
     # Find out what script to run
     try:
         cmd = __get_nested(metadata, ("implementation", "executable", "cmd"))
@@ -207,33 +234,35 @@ def __run_experiment(metadata: "dict[str, Any]", directory: "Path") -> None:
     docker_args = ["--rm"]
     if not network_access:
         docker_cmd.extend(("--network", "none"))
-    subprocess.run(["docker", *docker_args, "repro-experiment"], check=True)
+    for key, value in env.items():
+        docker_args.extend(("-e", f"{key}={value}"))
+    subprocess.run(["docker", "run", *docker_args, "repro-experiment"], check=True)
 
 
 # TODO: add optional --out path
-def reproduce_command(metadata: "TextIO", **kwargs) -> int:
+def reproduce_command(metadata: "TextIO", dataset: str, **kwargs) -> int:
     data = __load_metadata(metadata)
     with tempfile.TemporaryDirectory() as tmpdir:
         log_message(
             f"Switched working directory to {tmpdir}", FormatMsgType.OK)
         with __download_code(data, Path(tmpdir)) as _:
             __configure_docker_container(data, Path(tmpdir))
-            __run_experiment(data, Path(tmpdir))
+            __run_experiment(data, Path(tmpdir), {"TIRA_INPUT_DATASET": dataset})
     # Each subroutine will sys.exit() with their individual error code upon error such that exit values other than 0 are
     # still possible
     return 0
 
 
-def main(outdir: Path) -> int:
+def main(outdir: Path, dataset: str) -> int:
     # TODO implement
     # This function reads the irmetadata from outdir / "irmetadata.yaml" (you can find an example in ./out/irmetadata.yaml)
     # and does the following:
     with (outdir / "irmetadata.yaml").open() as f:
-        reproduce_command(f)
+        reproduce_command(f, dataset)
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        print("Illegal number of arguments, exactly one expected")
+    if len(sys.argv) != 3:
+        print("Illegal number of arguments, exactly two expected")
         exit(1)
-    exit(main(Path(sys.argv[1])))
+    exit(main(Path(sys.argv[1]), sys.argv[2]))
